@@ -40,9 +40,10 @@ flags.DEFINE_float('score_th', 0.40, 'score threshold')
 flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('display_count', False, 'count objects being tracked on screen')
-flags.DEFINE_string('output_csv_path', './outputs/video_data.csv','path to output csv file')
+flags.DEFINE_string('output_csv_path', './outputs/video_data.csv','path to output detections csv file')
 flags.DEFINE_string('startline', '193,183','start point of the line for the entrance of the store')
 flags.DEFINE_string('endline', '650,183','end point of the line for the entrance of the store')
+flags.DEFINE_string('count_csv_path', './outputs/count_data.csv','path to output count csv file')
 
 def main(_argv):
 	# Definition of the parameters
@@ -68,9 +69,16 @@ def main(_argv):
 	startline = tuple(map(int,FLAGS.startline.split(',')))
 	endline = tuple(map(int,FLAGS.endline.split(',')))
 	output_csv_path = FLAGS.output_csv_path
+	count_csv_path = FLAGS.count_csv_path
 	
-	#Extract the date and time information from the video_path name
-	time_start_vid, time_end_vid = re.findall('[0-9]{14}',video_path)
+	#Extract the date and time information from the video_path string
+	if len(re.findall('[0-9]{14}',video_path)) == 2:
+		time_start_vid, time_end_vid = re.findall('[0-9]{14}',video_path)
+		time_start_vid_dt = datetime.strptime(str(time_start_vid), '%Y%m%d%H%M%S')
+		time_end_vid_dt = datetime.strptime(str(time_end_vid), '%Y%m%d%H%M%S')
+		
+	#Extract the name of the store from the video_path string
+	store_name = re.findall(r'/([a-z0-9\s]*)_*',video_path.lower())[-1]
 	
 	saved_model_loaded = tf.saved_model.load(FLAGS.weights_path, tags=[tag_constants.SERVING])
 	infer = saved_model_loaded.signatures['serving_default']
@@ -93,7 +101,7 @@ def main(_argv):
 		out = cv2.VideoWriter(FLAGS.output_vid, codec, fps, (width, height))
 	
 	frame_num = 1
-	dataframe = pd.DataFrame()
+	detections_df = pd.DataFrame()
 	temp = pd.DataFrame()
 	
 	from _collections import deque
@@ -221,6 +229,7 @@ def main(_argv):
 				print(f"Tracker ID: {str(track.track_id)}, Class: {class_name},  BBox Coords (xmin, ymin, xmax, ymax): {(int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))}")
 			temp = pd.DataFrame(
 					{
+						'Store_name': [store_name],
 						'Object':[class_name],
 						'Id': [int(track.track_id)],
 						'X_min': [int(bbox[0])],
@@ -230,7 +239,7 @@ def main(_argv):
 						'Frame' : [frame_num]   
 					})
 	
-			dataframe = pd.concat([dataframe, temp],ignore_index=True)
+			detections_df = pd.concat([detections_df, temp],ignore_index=True)
 	
 			center = (int(((bbox[0])+(bbox[2]))/2), int(((bbox[1])+(bbox[3]))/2))
 			pts[track.track_id].append(center)
@@ -273,15 +282,31 @@ def main(_argv):
 	print("Total Processing time: ",time.time()-start_process)
 	cv2.destroyAllWindows()
 		
-	# saving the data into a csv
-	dataframe.to_csv(output_csv_path, index = False)
-	print("my file was successfully saved!")
+	# saving the detections data into a csv
+	detections_df.to_csv(output_csv_path, index = False)
+	print("The detections file was successfully saved!")
 	
-	#upload the data to the database
-	upload_to_db(output_csv_path, 'tracker')
+	# saving the count data into into a csv
+	count_df = pd.DataFrame(
+		{
+			'Store_name': [store_name],
+			'Start_date': [time_start_vid_dt],
+			'End_date': [time_end_vid_dt],
+			'Count': [total_count]
+		}
+	)
+	count_df.to_csv(count_csv_path, index = False)
+	print("The counts file was successfully saved!")
+	
+	#upload the detections data to the database
+	#upload_to_db(output_csv_path, 'tracker')
+	upload_to_db(detections_df, 'tracker')
+	
+	#upload the count data to the database
+	upload_to_db(count_df, 'counts')
 
 
-def upload_to_db(output_csv_path, table_name):
+def upload_to_db(df, table_name):
 	host = 'team-cv.cfsx82z4jthl.us-east-2.rds.amazonaws.com'
 	port = 5432
 	user = 'ds4a_69'
@@ -292,7 +317,7 @@ def upload_to_db(output_csv_path, table_name):
 	engine=create_engine(f'postgresql://{user}:{password}@{host}:{port}/{database}', max_overflow=20)
 	
 	# Reading the csv file
-	df = pd.read_csv(output_csv_path)
+	#df = pd.read_csv(csv_path)
 	
 	# uploading the data to the database
 	df.to_sql(table_name, engine, if_exists='replace', index=False, method = 'multi')
