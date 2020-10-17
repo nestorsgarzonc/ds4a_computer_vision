@@ -105,7 +105,7 @@ def main(_argv):
 	temp = pd.DataFrame()
 	
 	from _collections import deque
-	pts = [deque(maxlen=30) for _ in range(1000)]
+	pts = [deque(maxlen=15) for _ in range(1000)]
 	print("now =", datetime.now())
 	
 	counter = []
@@ -240,8 +240,11 @@ def main(_argv):
 					})
 	
 			detections_df = pd.concat([detections_df, temp],ignore_index=True)
-	
-			center = (int(((bbox[0])+(bbox[2]))/2), int(((bbox[1])+(bbox[3]))/2))
+
+			# getting the center coordinates of the bounding box
+			#center = (int(((bbox[0])+(bbox[2]))/2), int(((bbox[1])+(bbox[3]))/2))
+			# getting the center in x axis and the bottom on y axis of the bounding box	
+			center = (int(((bbox[0])+(bbox[2]))/2), int(bbox[3]))
 			pts[track.track_id].append(center)
 			for j in range(1, len(pts[track.track_id])):
 				if pts[track.track_id][j-1] is None or pts[track.track_id][j] is None:
