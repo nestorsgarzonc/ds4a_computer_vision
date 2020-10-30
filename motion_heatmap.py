@@ -63,7 +63,3 @@ def heatmap_video(path_in, path_out, frames_sec = 2, thresh = 2, maxValue = 3):
     # cleanup
     cap.release()
     cv2.destroyAllWindows()
-
-if __name__ == '__main__':
-    heatmap_video('Hermeco Oficinas_10.50.60.47_1_20201001161330_20201001161924_1601609295690.mp4',
-                  'diff-overlay.jpg', frames_sec = 2, thresh = 4, maxValue = 2)
