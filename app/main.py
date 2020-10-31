@@ -1,13 +1,13 @@
-import shutil
-from fastapi import FastAPI, File, UploadFile
 from motion_heatmap import heatmap_video
+from fastapi import FastAPI, File, UploadFile
+import shutil
 
 app = FastAPI()
 
 
 @app.get("/")
 def read_root():
-    return {"Hello": "World"}
+    return {"Hello": "DS4A"}
 
 
 @app.post("/uploadHeatmapVideo/")
