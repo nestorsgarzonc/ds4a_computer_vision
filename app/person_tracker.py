@@ -27,6 +27,9 @@ import pandas as pd
 from datetime import datetime
 import re
 from sqlalchemy import create_engine, text
+from utils import *
+import matplotlib.path as mpltPath
+from datetime import timedelta
 ##for google collab
 from google.colab.patches import cv2_imshow
 
@@ -41,8 +44,8 @@ flags.DEFINE_boolean('dont_show', False, 'dont show video output')
 flags.DEFINE_boolean('info', False, 'show detailed info of tracked objects')
 flags.DEFINE_boolean('display_count', False, 'count objects being tracked on screen')
 flags.DEFINE_string('output_csv_path', './outputs/video_data.csv','path to output detections csv file')
-flags.DEFINE_string('startline', '193,183','start point of the line for the entrance of the store')
-flags.DEFINE_string('endline', '650,183','end point of the line for the entrance of the store')
+flags.DEFINE_string('startline', '614,95','start point of the line for the entrance of the store')
+flags.DEFINE_string('endline', '807,95','end point of the line for the entrance of the store')
 flags.DEFINE_string('count_csv_path', './outputs/count_data.csv','path to output count csv file')
 
 def main(_argv):
@@ -63,23 +66,31 @@ def main(_argv):
 	config = ConfigProto()
 	config.gpu_options.allow_growth = True
 	session = InteractiveSession(config=config)
-	#STRIDES, ANCHORS, NUM_CLASS, XYSCALE = utils.load_config(FLAGS)
+	# STRIDES, ANCHORS, NUM_CLASS, XYSCALE = utils.load_config(FLAGS)
 	input_size = FLAGS.size
 	video_path = FLAGS.video_path
 	startline = tuple(map(int,FLAGS.startline.split(',')))
 	endline = tuple(map(int,FLAGS.endline.split(',')))
 	output_csv_path = FLAGS.output_csv_path
 	count_csv_path = FLAGS.count_csv_path
-	
+
+	# Loading the stores configuration JSON file
+	stores_config_filename = 'stores_sections.json'
+	stores_config_filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), stores_config_filename)
+	stores_sections = load_json_file(stores_config_filepath)
+		
 	#Extract the date and time information from the video_path string
 	if len(re.findall('[0-9]{14}',video_path)) == 2:
 		time_start_vid, time_end_vid = re.findall('[0-9]{14}',video_path)
 		time_start_vid_dt = datetime.strptime(str(time_start_vid), '%Y%m%d%H%M%S')
 		time_end_vid_dt = datetime.strptime(str(time_end_vid), '%Y%m%d%H%M%S')
+		camera = int(re.findall(r'_([0-9]{1})_', video_path.lower())[0])
 		
-	#Extract the name of the store from the video_path string
+	# Extract the name of the store from the video_path string
 	store_name = re.findall(r'/([a-z0-9\s]*)_*',video_path.lower())[-1]
-	
+	if store_name == 'hermeco oficinas':
+		store_name = 'san diego'
+
 	saved_model_loaded = tf.saved_model.load(FLAGS.weights_path, tags=[tag_constants.SERVING])
 	infer = saved_model_loaded.signatures['serving_default']
 	
@@ -89,19 +100,41 @@ def main(_argv):
 	except:
 		vid = cv2.VideoCapture(video_path)
 	
+	
+	
+	# by default VideoCapture returns float instead of int
 	out = None
+	width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+	height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+	fps = int(vid.get(cv2.CAP_PROP_FPS))
+	frame_count  = int(vid.get(cv2.CAP_PROP_FRAME_COUNT)) # Total number of frames in the video
+	codec = cv2.VideoWriter_fourcc(*FLAGS.output_format)
+	delta_time = (time_end_vid_dt -time_start_vid_dt)/frame_count
 	
 	# get video ready to save locally if flag is set
-	if FLAGS.output_vid:
-		# by default VideoCapture returns float instead of int
-		width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
-		height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
-		fps = int(vid.get(cv2.CAP_PROP_FPS))
-		codec = cv2.VideoWriter_fourcc(*FLAGS.output_format)
+	if FLAGS.output_vid:		
 		out = cv2.VideoWriter(FLAGS.output_vid, codec, fps, (width, height))
 	
 	frame_num = 1
-	detections_df = pd.DataFrame()
+	detections_df = pd.DataFrame(
+		{
+			'Store_name': [],
+			'Start_date': [],
+			'End_date': [],
+			'current_datetime':[],
+			'Camera': [],
+			'Object':[],
+			'Id': [],
+			'X_center_original': [],
+			'Y_center_original': [],
+			'X_center_perspective': [],
+			'Y_center_perspective': [],
+			'X_min': [],
+			'Y_min': [],
+			'X_max':[],
+			'Y_max': [],
+			'Frame' : []   
+		})
 	temp = pd.DataFrame()
 	
 	from _collections import deque
@@ -111,10 +144,10 @@ def main(_argv):
 	counter = []
 	
 	start_process = time.time()
-	# while video is running
 	
+	# while video is running
 	while True:
-	#for j in range(0,200):
+	#for j in range(0,1000):
 		return_value, frame = vid.read()
 		if return_value:
 			frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -183,7 +216,7 @@ def main(_argv):
 				names.append(class_name)
 		names = np.array(names)
 		count = len(names)
-	
+
 		if FLAGS.display_count:
 			cv2.putText(frame, "Objects being tracked: {}".format(count), (5, 35), cv2.FONT_HERSHEY_COMPLEX_SMALL, 2, (0, 255, 0), 2)
 			print("Objects being tracked: {}".format(count))
@@ -204,12 +237,15 @@ def main(_argv):
 		scores = np.array([d.confidence for d in detections])
 		classes = np.array([d.class_name for d in detections])
 		indices = preprocessing.non_max_suppression(boxs, classes, nms_max_overlap, scores)
-		detections = [detections[i] for i in indices]       
-	
+		detections = [detections[i] for i in indices]   		 
+
 		# Call the tracker
 		tracker.predict()
 		tracker.update(detections)
-	
+
+		# Computing the time has passed since the beggining of the video
+		delta_time_frame = delta_time*(frame_num-1)
+
 		# update tracks
 		for track in tracker.tracks:
 			if not track.is_confirmed() or track.time_since_update > 1:
@@ -217,34 +253,34 @@ def main(_argv):
 			bbox = track.to_tlbr()
 			class_name = track.get_class()
 			
-		# draw bbox on screen
+			# draw bbox on screen
 			color = colors[int(track.track_id) % len(colors)]
 			color = [i * 255 for i in color]
 			cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), color, 2)
 			cv2.rectangle(frame, (int(bbox[0]), int(bbox[1]-30)), (int(bbox[0])+(len(class_name)+len(str(track.track_id)))*17, int(bbox[1])), color, -1)
 			cv2.putText(frame, class_name + "-" + str(track.track_id),(int(bbox[0]), int(bbox[1]-10)),0, 0.75, (255,255,255),2)        
 	
-		# if enable info flag then print details about each track
+			# if enable info flag then print details about each track
 			if FLAGS.info:
 				print(f"Tracker ID: {str(track.track_id)}, Class: {class_name},  BBox Coords (xmin, ymin, xmax, ymax): {(int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))}")
-			temp = pd.DataFrame(
-					{
-						'Store_name': [store_name],
-						'Object':[class_name],
-						'Id': [int(track.track_id)],
-						'X_min': [int(bbox[0])],
-						'Y_min': [int(bbox[1])],
-						'X_max':[int(bbox[2])],
-						'Y_max': [int(bbox[3])],
-						'Frame' : [frame_num]   
-					})
-	
-			detections_df = pd.concat([detections_df, temp],ignore_index=True)
-
-			# getting the center coordinates of the bounding box
-			#center = (int(((bbox[0])+(bbox[2]))/2), int(((bbox[1])+(bbox[3]))/2))
-			# getting the center in x axis and the bottom on y axis of the bounding box	
+					
 			center = (int(((bbox[0])+(bbox[2]))/2), int(bbox[3]))
+
+			# Loop for the diferent configured sections of the store for the current camera
+			for sec in stores_sections[store_name][f'camera_{camera}'].keys():
+				# Get the 4 points of the section
+				bound_section_points = 	stores_sections[store_name][f'camera_{camera}'][sec]['camera_view_points']
+				# Verify if the center point of the detection is in the section region
+				mpltPath_path = mpltPath.Path(bound_section_points)
+				inside = mpltPath_path.contains_point(list(center))
+				if inside:
+					# Get the perspective transformation matrix
+					transform_matrix = np.array(stores_sections[store_name][f'camera_{camera}'][sec]['transformation_matrix'])
+					# Apply the transformation matrix to transform the point to the blueprint perspective
+					transformed_center = point_perspective_transform(center, transform_matrix)[0]
+				else:
+					transformed_center = [0,0]
+
 			pts[track.track_id].append(center)
 			for j in range(1, len(pts[track.track_id])):
 				if pts[track.track_id][j-1] is None or pts[track.track_id][j] is None:
@@ -261,11 +297,32 @@ def main(_argv):
 			if center_y <= int(183+height/30) and center_y >= int(183-height/30):
 				if class_name == 'person':
 					counter.append(int(track.track_id))
-	
+			
+			temp = pd.DataFrame(
+					{
+						'Store_name': [store_name],
+						'Start_date': [time_start_vid_dt],
+						'End_date': [time_end_vid_dt],
+						'current_datetime':[time_start_vid_dt + delta_time_frame],
+						'Camera': [int(camera)],
+						'Object':[class_name],
+						'Id': [int(track.track_id)],
+						'X_center_original': [int(center[0])],
+						'Y_center_original': [int(center[1])],
+						'X_center_perspective': [int(transformed_center[0])],
+						'Y_center_perspective': [int(transformed_center[1])],
+						'X_min': [int(bbox[0])],
+						'Y_min': [int(bbox[1])],
+						'X_max':[int(bbox[2])],
+						'Y_max': [int(bbox[3])],
+						'Frame' : [int(frame_num)]   
+					})	
+			detections_df = pd.concat([detections_df, temp],ignore_index=True)
+
 		total_count = len(set(counter))
 	
 		cv2.putText(frame,'Total Count:' + str(total_count),(0,130),0,1,(0,0,255),2)
-	
+
 		frame_num +=1
 		# calculate frames per second of running detections
 		fps = 1.0 / (time.time() - start_time)
@@ -281,7 +338,34 @@ def main(_argv):
 		if FLAGS.output_vid:
 			out.write(result)
 		if cv2.waitKey(1) & 0xFF == ord('q'): break
-	
+
+	for f in range(1,frame_num):
+		if f not in detections_df.Frame.to_list():
+			# Computing the time has passed since the beggining of the video
+			delta_time_frame = delta_time*(f-1)
+			# default row in the dataframe if there are 0 detections in the frame
+			temp = pd.DataFrame(
+					{
+						'Store_name': [store_name],
+						'Start_date': [time_start_vid_dt],
+						'End_date': [time_end_vid_dt],
+						'current_datetime':[time_start_vid_dt + delta_time_frame],
+						'Camera': [camera],
+						'Object':['default'],
+						'Id': [int(0)],
+						'X_center_original': [int(0)],
+						'Y_center_original': [int(0)],
+						'X_center_perspective': [int(0)],
+						'Y_center_perspective': [int(0)],
+						'X_min': [int(0)],
+						'Y_min': [int(0)],
+						'X_max':[int(0)],
+						'Y_max': [int(0)],
+						'Frame' : [int(f)]   
+					})	
+			detections_df = pd.concat([detections_df, temp],ignore_index=True)
+	detections_df = detections_df.sort_values(by= 'Frame')
+
 	print("Total Processing time: ",time.time()-start_process)
 	cv2.destroyAllWindows()
 		
@@ -295,6 +379,7 @@ def main(_argv):
 			'Store_name': [store_name],
 			'Start_date': [time_start_vid_dt],
 			'End_date': [time_end_vid_dt],
+			'Camera': [camera],
 			'Count': [total_count]
 		}
 	)
@@ -302,27 +387,15 @@ def main(_argv):
 	print("The counts file was successfully saved!")
 	
 	#upload the detections data to the database
-	#upload_to_db(output_csv_path, 'tracker')
-	upload_to_db(detections_df, 'tracker')
+	#upload_to_db(output_csv_path, 'tracker') # passing the csv path
+	upload_to_db(detections_df, 'tracker') # passing the dataframe
 	
 	#upload the count data to the database
 	upload_to_db(count_df, 'counts')
 
 
-def upload_to_db(df, table_name):
-	host = 'team-cv.cfsx82z4jthl.us-east-2.rds.amazonaws.com'
-	port = 5432
-	user = 'ds4a_69'
-	password = 'DS4A!2020'
-	database = 'postgres'
-	
-	# Create the engine with the db credentials
-	engine=create_engine(f'postgresql://{user}:{password}@{host}:{port}/{database}', max_overflow=20)
-	
-	# Reading the csv file
-	#df = pd.read_csv(csv_path)
-	
-	# uploading the data to the database
-	df.to_sql(table_name, engine, if_exists='replace', index=False, method = 'multi')
-	print('Data succesfully uploaded to the database')
-
+if __name__ == '__main__':
+	try:
+		app.run(main)
+	except SystemExit:
+		pass
