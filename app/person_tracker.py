@@ -73,6 +73,7 @@ def main(_argv):
 	endline = tuple(map(int,FLAGS.endline.split(',')))
 	output_csv_path = FLAGS.output_csv_path
 	count_csv_path = FLAGS.count_csv_path
+	file_name = video_path.split("/")[-1]
 
 	# Loading the stores configuration JSON file
 	stores_config_filename = 'stores_sections.json'
@@ -141,7 +142,8 @@ def main(_argv):
 	pts = [deque(maxlen=15) for _ in range(1000)]
 	print("now =", datetime.now())
 	
-	counter = []
+	counter_out = []
+	counter_in = []
 	
 	start_process = time.time()
 	
@@ -294,9 +296,16 @@ def main(_argv):
 			cv2.line(frame,startline,endline,(0,0,255),2)
 			center_y = int(((bbox[1])+(bbox[3]))/2)
 	
-			if center_y <= int(183+height/30) and center_y >= int(183-height/30):
+			if center_y <= int(startline[1]+16) and center_y >= int(startline[1]-16):
 				if class_name == 'person':
-					counter.append(int(track.track_id))
+					list_y = [i[1] for i in pts[track.track_id]]
+					res =  all(x<y for x, y in zip(list_y,list_y[1:]))
+					before = (pts[track.track_id][-2][1])
+					after = (pts[track.track_id][-1][1])
+					if res:
+						counter_in.append(int(track.track_id))
+					else:
+						counter_out.append(int(track.track_id))
 			
 			temp = pd.DataFrame(
 					{
@@ -319,9 +328,11 @@ def main(_argv):
 					})	
 			detections_df = pd.concat([detections_df, temp],ignore_index=True)
 
-		total_count = len(set(counter))
+		total_count_in = len(set(counter_in))
+		total_count_out = len(set(counter_out))
 	
-		cv2.putText(frame,'Total Count:' + str(total_count),(0,130),0,1,(0,0,255),2)
+		cv2.putText(frame,'Total Count In:' + str(len(set(counter_in))),(0,130),0,1,(0,0,255),2)
+		cv2.putText(frame,'Total Count Out:' + str(len(set(counter_out))),(0,200),0,1,(0,0,255),2)
 
 		frame_num +=1
 		# calculate frames per second of running detections
@@ -374,24 +385,40 @@ def main(_argv):
 	print("The detections file was successfully saved!")
 	
 	# saving the count data into into a csv
-	count_df = pd.DataFrame(
+	count_df_in = pd.DataFrame(
 		{
 			'Store_name': [store_name],
 			'Start_date': [time_start_vid_dt],
 			'End_date': [time_end_vid_dt],
 			'Camera': [camera],
-			'Count': [total_count]
+			'Count': [total_count_in],
+			'inout' : "In",
+			'name_video' : [file_name]
 		}
 	)
-	count_df.to_csv(count_csv_path, index = False)
-	print("The counts file was successfully saved!")
+	count_df_out = pd.DataFrame(
+		{
+			'Store_name': [store_name],
+			'Start_date': [time_start_vid_dt],
+			'End_date': [time_end_vid_dt],
+			'Camera': [camera],
+			'Count': [total_count_out],
+			'inout' : "Out",
+			'name_video' : [file_name]
+		}
+	)
+
+	count_df = pd.concat([count_df_in, count_df_out], ignore_index=True)
+
+	count_df.to_csv(count_csv_path, index = False)	
+	print("The counts files were successfully saved!")
 	
 	#upload the detections data to the database
 	#upload_to_db(output_csv_path, 'tracker') # passing the csv path
-	upload_to_db(detections_df, 'tracker') # passing the dataframe
+	upload_to_db(detections_df, 'tracker', 'replace') # passing the dataframe
 	
 	#upload the count data to the database
-	upload_to_db(count_df, 'counts')
+	upload_to_db(count_df, 'counts', 'replace')	
 
 
 if __name__ == '__main__':
