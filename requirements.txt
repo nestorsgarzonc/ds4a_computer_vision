@@ -1,0 +1,14 @@
+opencv-python==4.1.1.26
+lxml
+tqdm
+tensorflow==2.3.0rc0
+absl-py
+easydict
+matplotlib
+pillow
+pandas
+numpy
+sqlalchemy
+psycopg2-binary==2.8.6
+opencv-contrib-python==4.4.0.42
+opencv-python==4.4.0.42
