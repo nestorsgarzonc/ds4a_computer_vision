@@ -1,11 +1,19 @@
-# yolov4-deepsort
+# DS4A computer vision detections, tracking and counting
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
 
 Person tracking implemented with YOLOv4, DeepSort, and TensorFlow. 
 
 ### You can find the frontend repository of the application [here](https://github.com/nestorsgarzonc/Off_Corss_Front_End)
 
-### you can see the final deployed web application [here](http://ec2-18-217-12-2.us-east-2.compute.amazonaws.com:8050/)
+### You can see the final deployed web application [here](http://ec2-18-217-12-2.us-east-2.compute.amazonaws.com:8050/)
+
+## Codes to take into account
+```bash
+-person_tracker.py : This is the main script to do the detection, tracking and count of people in the store, and upload the results to the database of the project
+-stores_configuration.py : With this script we configure the sections of interest of the store for each camera and the result is the json file stores_sections.json
+-utils.py : In this script we have useful functions that are used in the scrit mentioned above.
+-person_tracker.ipynb: This notebook contains the setup to be ready to use the person_tracker.py
+``` 
 
 ## Command Line Args Reference
 
