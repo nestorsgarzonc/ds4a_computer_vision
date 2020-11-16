@@ -1,4 +1,4 @@
-# DS4A computer vision detections, tracking and counting
+# DS4A computer vision for detection, tracking and counting people
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)](LICENSE)
 
 Person tracking implemented with YOLOv4, DeepSort, and TensorFlow. 
